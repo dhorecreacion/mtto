@@ -1,21 +1,22 @@
+# Usamos una imagen ligera de Python
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# Evita que Python genere archivos .pyc y permite ver logs en tiempo real
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-# Dependencias del sistema para psycopg2
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Directorio de trabajo
+WORKDIR /app
+
+# Instalamos dependencias del sistema necesarias para psycopg2 y utilidades
+RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app/backend
+# Instalamos dependencias de Python
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requerimientos.txt
 
-# Instalar dependencias Python primero (capa cacheada)
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copiar el proyecto completo
-COPY . /app
-
-EXPOSE 8000
+# Copiamos el resto del proyecto
+COPY . /app/

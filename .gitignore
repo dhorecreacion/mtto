@@ -21,3 +21,20 @@ media/
 .vscode/
 .idea/
 *.swp
+.DS_Store
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Database
+db.sqlite3
+*.sqlite3
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Node (por si se agrega frontend)
+node_modules/

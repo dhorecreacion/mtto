@@ -1,61 +1,38 @@
-services:
+version: '3.8'
 
+services:
   db:
     image: postgres:15-alpine
-    container_name: gmant_db
-    restart: unless-stopped
+    restart: always
+    # Eliminamos env_file de aquí y dejamos que Docker lo busque en la raíz automáticamente
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-gmant}
-      POSTGRES_USER: ${POSTGRES_USER:-gmant_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+      - postgres_data:/var/lib/postgresql/data/
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gmant_user} -d ${POSTGRES_DB:-gmant}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
       timeout: 5s
       retries: 5
 
   web:
     build: .
-    container_name: gmant_web
-    restart: unless-stopped
-    command: >
-      sh -c "python manage.py migrate &&
-             python manage.py collectstatic --noinput &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"
+    command: python manage.py runserver 0.0.0.0:8000
     volumes:
-      - .:/app
-      - static_volume:/app/staticfiles
-      - media_volume:/app/media
+      - ./backend:/app
     ports:
       - "8000:8000"
+    # Cargamos el archivo .env explícitamente para Django
+    env_file:
+      - .env
     environment:
-      DEBUG: ${DEBUG:-False}
-      SECRET_KEY: ${SECRET_KEY}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-gmant_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-gmant}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DJANGO_SETTINGS_MODULE: config.settings.production
+      - DB_HOST=db
+      - DB_PORT=5432
     depends_on:
       db:
         condition: service_healthy
 
-  nginx:
-    image: nginx:alpine
-    container_name: gmant_nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - static_volume:/app/staticfiles:ro
-      - media_volume:/app/media:ro
-    depends_on:
-      - web
-
 volumes:
   postgres_data:
-  static_volume:
-  media_volume:
