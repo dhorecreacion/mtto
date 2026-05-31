@@ -38,3 +38,9 @@ docker-compose.override.yml
 
 # Node (por si se agrega frontend)
 node_modules/
+
+# Certificados SSL
+*.pem
+*.key
+*.crt
+*.csr

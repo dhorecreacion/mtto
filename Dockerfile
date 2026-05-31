@@ -8,15 +8,9 @@ ENV PYTHONUNBUFFERED 1
 # Directorio de trabajo
 WORKDIR /app
 
-# Instalamos dependencias del sistema necesarias para psycopg2 y utilidades
-RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
 # Instalamos dependencias de Python
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requerimientos.txt
+COPY backend/requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiamos el resto del proyecto
-COPY . /app/
+COPY  backend/ /app/
