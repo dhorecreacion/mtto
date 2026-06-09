@@ -8,6 +8,15 @@ ENV PYTHONUNBUFFERED 1
 # Directorio de trabajo
 WORKDIR /app
 
+# Dependencias del sistema para WeasyPrint (PDF)
+RUN apt-get update && apt-get install -y \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf-xlib-2.0-0 \
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Instalamos dependencias de Python
 COPY backend/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt

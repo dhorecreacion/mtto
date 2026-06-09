@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1d23; padding: 24px; }
+
+  .header { border-bottom: 2px solid #5aa0d3; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .header-title { font-size: 15px; font-weight: bold; color: #5aa0d3; letter-spacing: 1px; text-transform: uppercase; }
+  .header-sub { font-size: 10px; color: #b0b1b3; margin-top: 2px; }
+  .header-meta { text-align: right; font-size: 10px; color: #b0b1b3; }
+
+  .seccion { margin-bottom: 18px; }
+  .seccion-titulo { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: #b0b1b3; border-bottom: 1px solid #e2e4e8; padding-bottom: 4px; margin-bottom: 10px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .campo { margin-bottom: 6px; }
+  .campo-label { font-size: 9px; color: #b0b1b3; text-transform: uppercase; }
+  .campo-valor { font-size: 11px; color: #1a1d23; font-weight: 500; }
+
+  .scores-tabla { width: 100%; border-collapse: collapse; }
+  .scores-tabla th { font-size: 9px; text-transform: uppercase; color: #b0b1b3; border-bottom: 1px solid #e2e4e8; padding: 4px 8px; text-align: left; }
+  .scores-tabla td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
+  .score-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: bold; font-size: 10px; color: white; }
+  .score-1 { background: #4caf82; }
+  .score-2 { background: #7bc47f; }
+  .score-3 { background: #e8a838; }
+  .score-4 { background: #e07a38; }
+  .score-5 { background: #e05252; }
+
+  .hallazgos { background: #f5f6f8; border: 1px solid #e2e4e8; border-radius: 6px; padding: 10px; font-size: 11px; line-height: 1.5; min-height: 60px; }
+
+  .fotos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .foto-item img { width: 100%; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid #e2e4e8; }
+  .foto-tipo { font-size: 9px; color: #b0b1b3; text-transform: uppercase; margin-bottom: 3px; }
+
+  .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 30px; }
+  .firma-box { text-align: center; }
+  .firma-img { height: 70px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #1a1d23; margin-bottom: 4px; }
+  .firma-img img { max-height: 65px; max-width: 100%; }
+  .firma-nombre { font-size: 10px; font-weight: bold; }
+  .firma-rol { font-size: 9px; color: #b0b1b3; }
+
+  .estado-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 9px; font-weight: bold; }
+  .estado-APROBADO { background: #e8f5ee; color: #4caf82; }
+  .estado-ENVIADO { background: #e8f0f8; color: #5aa0d3; }
+  .estado-BORRADOR { background: #fef8e8; color: #e8a838; }
+
+  .footer { margin-top: 30px; border-top: 1px solid #e2e4e8; padding-top: 8px; font-size: 9px; color: #b0b1b3; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="header-title">Informe de Mantenimiento Preventivo</div>
+    <div class="header-sub">FORM-DHO-061 — Sistema de Gestión MTTO</div>
+  </div>
+  <div class="header-meta">
+    <div>Fecha: {{ informe.fecha }}</div>
+    <div>Estado: <span class="estado-badge estado-{{ informe.estado_informe }}">{{ informe.estado_informe }}</span></div>
+  </div>
+</div>
+
+{% if equipo %}
+<div class="seccion">
+  <div class="seccion-titulo">Datos del Equipo</div>
+  <div class="grid-2">
+    <div>
+      <div class="campo">
+        <div class="campo-label">Nombre</div>
+        <div class="campo-valor">{{ equipo.nombre }}</div>
+      </div>
+      <div class="campo">
+        <div class="campo-label">Código de Activo</div>
+        <div class="campo-valor">{{ equipo.codigo_activo }}</div>
+      </div>
+    </div>
+    <div>
+      {% if equipo.marca %}<div class="campo"><div class="campo-label">Marca</div><div class="campo-valor">{{ equipo.marca }}</div></div>{% endif %}
+      {% if equipo.modelo %}<div class="campo"><div class="campo-label">Modelo</div><div class="campo-valor">{{ equipo.modelo }}</div></div>{% endif %}
+      {% if programa %}
+      <div class="campo">
+        <div class="campo-label">Período</div>
+        <div class="campo-valor">{{ programa.anio }} / Mes {{ programa.mes_planificado }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="seccion">
+  <div class="seccion-titulo">Técnico Responsable</div>
+  <div class="grid-2">
+    <div class="campo">
+      <div class="campo-label">Técnico</div>
+      <div class="campo-valor">{{ informe.tecnico.get_full_name|default:informe.tecnico.username }}</div>
+    </div>
+    {% if informe.hora_inicio and informe.hora_fin %}
+    <div class="campo">
+      <div class="campo-label">Horario</div>
+      <div class="campo-valor">{{ informe.hora_inicio }} — {{ informe.hora_fin }}</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if scores %}
+<div class="seccion">
+  <div class="seccion-titulo">Evaluación de Componentes</div>
+  <table class="scores-tabla">
+    <thead>
+      <tr>
+        <th>Componente</th>
+        <th>Score</th>
+        <th>Estado</th>
+        <th>Observación</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in scores %}
+      <tr>
+        <td>{{ s.componente.nombre_componente }}</td>
+        <td><span class="score-badge score-{{ s.score_valor }}">{{ s.score_valor }}</span></td>
+        <td>
+          {% if s.score_valor == 1 %}Excelente
+          {% elif s.score_valor == 2 %}Bueno
+          {% elif s.score_valor == 3 %}Regular
+          {% elif s.score_valor == 4 %}Malo
+          {% else %}Falla Inminente{% endif %}
+        </td>
+        <td>{{ s.observacion_tecnica|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if informe.hallazgos_generales %}
+<div class="seccion">
+  <div class="seccion-titulo">Hallazgos Generales</div>
+  <div class="hallazgos">{{ informe.hallazgos_generales }}</div>
+</div>
+{% endif %}
+
+{% if evidencias %}
+<div class="seccion">
+  <div class="seccion-titulo">Evidencias Fotográficas</div>
+  <div class="fotos-grid">
+    {% for ev in evidencias %}
+    <div class="foto-item">
+      <div class="foto-tipo">{{ ev.tipo }}</div>
+      <img src="{{ ev.b64 }}" />
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="firmas">
+  <div class="firma-box">
+    <div class="firma-img">
+      {% if firma_tecnico %}<img src="{{ firma_tecnico }}" />{% endif %}
+    </div>
+    <div class="firma-nombre">{{ informe.tecnico.get_full_name|default:informe.tecnico.username }}</div>
+    <div class="firma-rol">Técnico</div>
+  </div>
+  <div class="firma-box">
+    <div class="firma-img">
+      {% if firma_supervisor %}<img src="{{ firma_supervisor }}" />{% endif %}
+    </div>
+    <div class="firma-nombre">
+      {% if informe.supervisor %}{{ informe.supervisor.get_full_name|default:informe.supervisor.username }}{% else %}Pendiente de aprobación{% endif %}
+    </div>
+    <div class="firma-rol">Supervisor / Administrador</div>
+  </div>
+</div>
+
+<div class="footer">
+  Documento generado por el Sistema de Gestión de Mantenimiento — {{ informe.fecha }}
+</div>
+
+</body>
+</html>

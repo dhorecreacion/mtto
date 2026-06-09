@@ -18,10 +18,11 @@ class Usuario(AbstractUser):
 
     #RUTAS FIRMA
 
-    firma_digital = models.ImageField(upload_to='firmas_usuarios/', 
-                                      blank=True, 
-                                      null=True, 
-                                      help_text="Imagen con fondo transparente para estampar en informes PDF" )
+    firma_digital = models.ImageField(upload_to='firmas_usuarios/',
+                                      blank=True, null=True,
+                                      help_text="Imagen generada desde trazos para estampar en PDF")
+    firma_trazos = models.JSONField(blank=True, null=True,
+                                    help_text="Coordenadas normalizadas [[[x,y],...],...]")
 
 
     def __str__(self):

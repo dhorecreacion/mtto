@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-border: #e2e4e8;
+  --color-text: #1a1d23;
+  --color-muted: #b0b1b3;
+  --color-primary: #5aa0d3;
+  --color-primary-hover: #4a8fc2;
+  --color-danger: #e05252;
+  --color-success: #4caf82;
+  --color-warning: #e8a838;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+select option {
+  background-color: #ffffff;
+  color: #1a1d23;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
