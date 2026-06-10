@@ -25,9 +25,28 @@ services:
     # Cargamos el archivo .env explícitamente para Django
     env_file:
       - .env
+    environment:
+      - STT_URL=http://stt:9000
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:1b
     depends_on:
       db:
         condition: service_healthy
+
+  # Servicio de transcripción de voz (Speech-to-Text)
+  stt:
+    build: ./stt
+    restart: unless-stopped
+    environment:
+      - WHISPER_MODEL=base
+      - WHISPER_LANG=es
+
+  # Motor de LLM local (llama3.2:1b) para estructurar el texto
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
 
   frontend:
     build: ./frontend
@@ -37,9 +56,11 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      # IP de la máquina anfitriona en la red local (para acceso desde otros dispositivos)
+      - VITE_API_URL=http://192.168.1.43:8000
     depends_on:
       - web
 
 volumes:
   postgres_data:
+  ollama_data:

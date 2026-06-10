@@ -7,6 +7,7 @@ from django.template.loader import render_to_string
 from django.conf import settings
 import base64
 import io
+import requests
 from .models import ProgramaMantenimiento, InformeMantenimiento, MantenimientoDetalleScore, EvidenciaFoto
 from correctivo.models import OrdenCorrectiva
 from .serializers import (
@@ -98,6 +99,28 @@ class ProgramaMantenimientoViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save(modificado_por=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='asistente-voz')
+    def asistente_voz(self, request, pk=None):
+        """Recibe audio, lo transcribe y lo estructura para llenar el formulario."""
+        from . import asistente_voz as av
+
+        programa = self.get_object()
+        audio = request.FILES.get('audio')
+        if not audio:
+            return Response({'error': 'No se recibió audio.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        componentes = list(
+            programa.equipo.componentes.filter(activo=True).values_list('nombre_componente', flat=True)
+        )
+        try:
+            resultado = av.procesar(audio, componentes)
+        except requests.exceptions.RequestException as e:
+            return Response(
+                {'error': f'El servicio de IA no está disponible: {e}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(resultado)
 
 
 class InformeMantenimientoViewSet(viewsets.ModelViewSet):

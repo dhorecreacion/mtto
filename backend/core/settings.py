@@ -17,16 +17,19 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
+def env_bool(nombre, default=False):
+    return os.environ.get(nombre, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-h^-w#+%$b$9h&$1a2)f1$$keo-39@#c1br%lw0$e7pg06^itl7'
+def env_list(nombre, default=''):
+    return [x.strip() for x in os.environ.get(nombre, default).split(',') if x.strip()]
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# SECURITY: la clave viene del .env. El fallback solo sirve para arranque local.
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-only-change-me')
 
-ALLOWED_HOSTS = []
+# SECURITY: DEBUG debe ser False en producción (se controla desde el .env).
+DEBUG = env_bool('DEBUG', default=False)
+
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
 
 # Application definition
@@ -156,8 +159,24 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 LOGIN_REDIRECT_URL = '/api/reportes/seguimiento-predictivo/'
 
-CORS_ORIGIN_ALLOW_ALL = True
+# CORS: en desarrollo se permite todo; en producción solo los orígenes del .env
 CORS_ALLOW_CREDENTIALS = True
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS')
+    CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
+
+# Hardening automático cuando DEBUG=False (producción)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', default=True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 año
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Django REST Framework
 REST_FRAMEWORK = {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../api/axios'
 import { useAuth } from '../../context/useAuth'
@@ -51,6 +51,14 @@ export default function InformeFormPage() {
   const [modalRechazo, setModalRechazo] = useState(false)
   const [comentarioRechazo, setComentarioRechazo] = useState('')
 
+  // --- Asistente de voz ---
+  const [grabando, setGrabando] = useState(false)
+  const [procesandoVoz, setProcesandoVoz] = useState(false)
+  const [resumenVoz, setResumenVoz] = useState(null)
+  const [errorVoz, setErrorVoz] = useState('')
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+
   const MAX_FOTOS = 5
 
   const handleFoto = (tipo, archivos) => {
@@ -78,6 +86,85 @@ export default function InformeFormPage() {
       setEquipo(prev => ({ ...prev, componentes: prev.componentes.filter(c => c.id !== componenteId) }))
       setScores(prev => { const s = { ...prev }; delete s[componenteId]; return s })
     } catch (e) { setError(e.response?.data?.error || 'No se pudo eliminar.') }
+  }
+
+  // --- Asistente de voz ---
+  const iniciarGrabacion = async () => {
+    setErrorVoz(''); setResumenVoz(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      audioChunksRef.current = []
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        enviarAudio(blob)
+      }
+      mr.start()
+      mediaRecorderRef.current = mr
+      setGrabando(true)
+    } catch {
+      setErrorVoz('No se pudo acceder al micrófono. Verifica permisos (requiere HTTPS o localhost).')
+    }
+  }
+
+  const detenerGrabacion = () => {
+    if (mediaRecorderRef.current && grabando) {
+      mediaRecorderRef.current.stop()
+      setGrabando(false)
+      setProcesandoVoz(true)
+    }
+  }
+
+  const enviarAudio = async (blob) => {
+    try {
+      const fd = new FormData()
+      fd.append('audio', blob, 'dictado.webm')
+      const { data } = await api.post(`/api/preventivo/programas/${programaId}/asistente-voz/`, fd)
+      await aplicarResultadoVoz(data)
+    } catch (e) {
+      setErrorVoz(e.response?.data?.error || 'No se pudo procesar el audio.')
+    } finally {
+      setProcesandoVoz(false)
+    }
+  }
+
+  const aplicarResultadoVoz = async (data) => {
+    const aplicados = []
+
+    // Hallazgos generales
+    if (data.hallazgos_generales) {
+      setHallazgos(data.hallazgos_generales)
+      aplicados.push('Hallazgos generales')
+    }
+
+    // Requiere tercero
+    if (data.requiere_tercero) {
+      setPrograma(prev => ({ ...prev, requiere_tercero: true }))
+      try { await api.patch(`/api/preventivo/programas/${programaId}/`, { requiere_tercero: true }) } catch { /* noop */ }
+      aplicados.push('Requiere tercero')
+    }
+
+    // Componentes y scores
+    let compsActuales = [...equipo.componentes]
+    for (const comp of (data.componentes || [])) {
+      let existente = compsActuales.find(c => c.nombre_componente.toLowerCase() === comp.nombre.toLowerCase())
+      // Crear el componente si no existe
+      if (!existente) {
+        try {
+          const { data: nuevo } = await api.post(`/api/activos/equipos/${equipo.id}/componentes/`, { nombre_componente: comp.nombre })
+          compsActuales.push(nuevo)
+          existente = nuevo
+        } catch { continue }
+      }
+      setScores(prev => ({ ...prev, [existente.id]: comp.score }))
+      if (comp.observacion) setObservaciones(prev => ({ ...prev, [existente.id]: comp.observacion }))
+      aplicados.push(`${existente.nombre_componente}: score ${comp.score}`)
+    }
+    setEquipo(prev => ({ ...prev, componentes: compsActuales }))
+
+    setResumenVoz({ texto: data.texto, aplicados })
   }
 
   const eliminarFoto = async (tipo, index) => {
@@ -273,28 +360,28 @@ export default function InformeFormPage() {
                 {informeExistente.estado_informe}
               </span>
               {informeExistente.estado_informe === 'APROBADO' && (
-                <a
-                  href={`http://localhost:8000/api/preventivo/informes/${informeExistente.id}/generar-pdf/`}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
                   className="text-xs bg-[#5aa0d3] hover:bg-[#4a8fc2] text-white px-3 py-1.5 rounded-lg transition-colors"
-                  onClick={async (e) => {
-                    e.preventDefault()
-                    const token = localStorage.getItem('access_token')
-                    const res = await fetch(`http://localhost:8000/api/preventivo/informes/${informeExistente.id}/generar-pdf/`, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    })
-                    const blob = await res.blob()
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `informe_${informeExistente.id.slice(0,8)}.pdf`
-                    a.click()
-                    URL.revokeObjectURL(url)
+                  onClick={async () => {
+                    try {
+                      const { data: blob } = await api.get(
+                        `/api/preventivo/informes/${informeExistente.id}/generar-pdf/`,
+                        { responseType: 'blob' }
+                      )
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `informe_${informeExistente.id.slice(0, 8)}.pdf`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    } catch {
+                      setError('No se pudo generar el PDF.')
+                    }
                   }}
                 >
                   Descargar PDF
-                </a>
+                </button>
               )}
               <div className="flex gap-2">
                 {esAdmin && informeExistente.estado_informe === 'APROBADO' && (
@@ -412,6 +499,57 @@ export default function InformeFormPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* Asistente de voz */}
+          {(!informeExistente || informeExistente.estado_informe === 'BORRADOR') && (
+            <div className="bg-[#5aa0d3]/10 border border-[#5aa0d3]/40 rounded-xl p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[#036494]">Asistente de voz</p>
+                  <p className="text-[#40484f] text-xs mt-0.5">
+                    Dicta los componentes, scores, hallazgos o si requiere tercero. Revisa el resultado antes de guardar.
+                  </p>
+                </div>
+                {!grabando ? (
+                  <button
+                    type="button"
+                    onClick={iniciarGrabacion}
+                    disabled={procesandoVoz}
+                    className="shrink-0 bg-[#036494] hover:bg-[#004b71] disabled:opacity-40 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors"
+                    title="Grabar"
+                  >
+                    <span className="material-symbols-outlined">mic</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={detenerGrabacion}
+                    className="shrink-0 bg-[#ba1a1a] hover:bg-[#93000a] text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors animate-pulse"
+                    title="Detener"
+                  >
+                    <span className="material-symbols-outlined">stop</span>
+                  </button>
+                )}
+              </div>
+
+              {procesandoVoz && <p className="text-[#036494] text-sm mt-3">Transcribiendo y analizando...</p>}
+              {errorVoz && <p className="text-[#e05252] text-sm mt-3">{errorVoz}</p>}
+
+              {resumenVoz && (
+                <div className="mt-3 bg-white border border-[#c0c7d0] rounded-lg p-3">
+                  <p className="text-xs uppercase tracking-wider text-[#b0b1b3] mb-1">Lo que entendí</p>
+                  <p className="text-[#40484f] text-xs italic mb-2">"{resumenVoz.texto}"</p>
+                  {resumenVoz.aplicados.length > 0 ? (
+                    <ul className="text-sm text-[#191c1e] list-disc list-inside">
+                      {resumenVoz.aplicados.map((a, i) => <li key={i}>{a}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="text-[#e8a838] text-sm">No se pudo extraer datos. Revisa o intenta de nuevo.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Componentes */}
           {(!informeExistente || informeExistente.estado_informe === 'BORRADOR') && (
