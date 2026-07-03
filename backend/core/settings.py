@@ -31,6 +31,11 @@ DEBUG = env_bool('DEBUG', default=False)
 
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
+# La IP de red local (HOST_IP) se agrega automaticamente para acceso desde otros dispositivos
+_host_ip = os.environ.get('HOST_IP', '').strip()
+if _host_ip and _host_ip not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_host_ip)
+
 
 # Application definition
 

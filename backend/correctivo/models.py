@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from activos.models import ModeloAuditoria, Equipo, Seccion
@@ -89,18 +89,20 @@ class HistorialReemplazo(models.Model):
                     {field: f'Solo se pueden hacer swaps de equipos REEMPLAZABLE. "{equipo.codigo_activo}" es INDUSTRIAL.'}
                 )
 
-    # Magia de Django: Actualizar el estado de los equipos automáticamente al guardar el Swap
+    # Actualiza el estado de los equipos automáticamente al guardar el Swap.
+    # Transacción: si algo falla, no queda inventario a medio actualizar.
+    @transaction.atomic
     def save(self, *args, **kwargs):
         is_new = self._state.adding
         super().save(*args, **kwargs)
-        
+
         if is_new:
             # El equipo viejo pasa a DADO_DE_BAJA y pierde su sección
             self.equipo_saliente.estado_operativo = Equipo.EstadoOperativo.DADO_DE_BAJA
             self.equipo_saliente.seccion = None
-            self.equipo_saliente.save()
-            
+            self.equipo_saliente.save(update_fields=['estado_operativo', 'seccion'])
+
             # El equipo nuevo pasa a EN_USO y se le asigna la sección del viejo
             self.equipo_entrante.estado_operativo = Equipo.EstadoOperativo.EN_USO
             self.equipo_entrante.seccion = self.seccion
-            self.equipo_entrante.save()
+            self.equipo_entrante.save(update_fields=['estado_operativo', 'seccion'])

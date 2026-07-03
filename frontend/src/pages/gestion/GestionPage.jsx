@@ -2,15 +2,17 @@ import { useState } from 'react'
 import UbicacionesTab from './UbicacionesTab'
 import EquiposTab from './EquiposTab'
 import ProgramasTab from './ProgramasTab'
+import UsuariosTab from './UsuariosTab'
 
 const TABS = [
+  { id: 'usuarios',    label: 'Usuarios' },
   { id: 'ubicaciones', label: 'Ubicaciones' },
   { id: 'equipos',     label: 'Equipos' },
   { id: 'programas',   label: 'Programas' },
 ]
 
 export default function GestionPage() {
-  const [tab, setTab] = useState('ubicaciones')
+  const [tab, setTab] = useState('usuarios')
 
   return (
     <div className="max-w-4xl mx-auto animate-in fade-in duration-500">
@@ -36,6 +38,7 @@ export default function GestionPage() {
         ))}
       </div>
 
+      {tab === 'usuarios'    && <UsuariosTab />}
       {tab === 'ubicaciones' && <UbicacionesTab />}
       {tab === 'equipos'     && <EquiposTab />}
       {tab === 'programas'   && <ProgramasTab />}

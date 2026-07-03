@@ -1,7 +1,18 @@
 import axios from 'axios'
 
+// Deriva la URL del backend del MISMO host con el que se abrió la app.
+// Así funciona en localhost o en cualquier IP de la red local sin reconstruir.
+// Si defines VITE_API_URL en el entorno, ese valor tiene prioridad (útil en producción).
+function resolverApiUrl() {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
+  const { protocol, hostname } = window.location
+  return `${protocol}//${hostname}:8000`
+}
+
+const API_URL = resolverApiUrl()
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: API_URL,
 })
 
 // Antes de cada petición, agrega el token JWT automáticamente
@@ -24,7 +35,7 @@ api.interceptors.response.use(
       if (refresh) {
         try {
           const { data } = await axios.post(
-            `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/token/refresh/`,
+            `${API_URL}/api/token/refresh/`,
             { refresh }
           )
           localStorage.setItem('access_token', data.access)

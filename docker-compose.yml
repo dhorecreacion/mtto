@@ -55,9 +55,8 @@ services:
       - /app/node_modules
     ports:
       - "5173:5173"
-    environment:
-      # IP de la máquina anfitriona en la red local (para acceso desde otros dispositivos)
-      - VITE_API_URL=http://192.168.1.43:8000
+    # Sin VITE_API_URL: el frontend detecta el backend del mismo host del navegador.
+    # (Define VITE_API_URL aquí solo si en producción el backend vive en otro dominio.)
     depends_on:
       - web
 

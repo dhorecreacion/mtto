@@ -1,4 +1,5 @@
 from rest_framework import viewsets, permissions
+from django.utils import timezone
 from core.mixins import SoftDeleteMixin
 from .models import ProveedorTercero, OrdenCorrectiva, HistorialReemplazo
 from .serializers import ProveedorTerceroSerializer, OrdenCorrectivaSerializer, HistorialReemplazoSerializer
@@ -36,7 +37,15 @@ class OrdenCorrectivaViewSet(SoftDeleteMixin, viewsets.ModelViewSet):
         serializer.save(creado_por=self.request.user)
 
     def perform_update(self, serializer):
-        serializer.save(modificado_por=self.request.user)
+        orden = serializer.save(modificado_por=self.request.user)
+        # Al completar, registra la fecha de resolución si no se puso (clave para MTTR)
+        if orden.estado == OrdenCorrectiva.EstadoOrden.COMPLETADO and orden.fecha_resolucion is None:
+            orden.fecha_resolucion = timezone.now()
+            orden.save(update_fields=['fecha_resolucion'])
+        # Si se reabre (deja de estar completada), se limpia la fecha de resolución
+        elif orden.estado != OrdenCorrectiva.EstadoOrden.COMPLETADO and orden.fecha_resolucion is not None:
+            orden.fecha_resolucion = None
+            orden.save(update_fields=['fecha_resolucion'])
 
 
 class HistorialReemplazoViewSet(viewsets.ModelViewSet):

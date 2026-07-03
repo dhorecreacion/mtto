@@ -7,6 +7,12 @@ const CATEGORIA = [['INDUSTRIAL', 'Industrial (Predictivo)'], ['REEMPLAZABLE', '
 const ESTADO = [['EN_USO', 'En Uso'], ['EN_ALMACEN', 'En Almacén'], ['DADO_DE_BAJA', 'Dado de Baja']]
 const FRECUENCIA = [['', 'Sin frecuencia'], ['MENSUAL', 'Mensual'], ['BIMENSUAL', 'Bimensual'], ['TRIMESTRAL', 'Trimestral']]
 
+const ESTADO_OP_ESTILO = {
+  EN_USO:       'bg-green-50 text-[#4caf82] border border-green-200',
+  EN_ALMACEN:   'bg-blue-50 text-[#5aa0d3] border border-blue-200',
+  DADO_DE_BAJA: 'bg-red-50 text-[#e05252] border border-red-200',
+}
+
 const FORM_VACIO = {
   codigo_activo: '', nombre: '', serie: '', marca: '', modelo: '',
   seccion: '', condicion: 'BUENA', criticidad: 'MEDIA',
@@ -22,8 +28,12 @@ export default function EquiposTab() {
   const [form, setForm] = useState(FORM_VACIO)
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [filtroEstado, setFiltroEstado] = useState('')
 
-  const cargar = () => api.get('/api/activos/equipos/').then(({ data }) => setEquipos(data.results ?? data))
+  const cargar = (estado = filtroEstado) => {
+    const url = estado ? `/api/activos/equipos/?estado=${estado}` : '/api/activos/equipos/'
+    api.get(url).then(({ data }) => setEquipos(data.results ?? data))
+  }
 
   useEffect(() => {
     cargar()
@@ -66,9 +76,21 @@ export default function EquiposTab() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <p className="text-[#40484f] text-sm">{equipos.length} equipos registrados</p>
-        <button onClick={abrirNuevo} className="bg-[#036494] hover:bg-[#004b71] text-white px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-colors">
+      <div className="flex justify-between items-center mb-4 gap-3">
+        <div className="flex items-center gap-3">
+          <select
+            value={filtroEstado}
+            onChange={(e) => { setFiltroEstado(e.target.value); cargar(e.target.value) }}
+            className="border border-[#c0c7d0] rounded-lg px-3 py-2 text-sm text-[#191c1e] focus:outline-none focus:border-[#036494] bg-white"
+          >
+            <option value="">Todos los estados</option>
+            <option value="EN_USO">En Uso</option>
+            <option value="EN_ALMACEN">En Almacén</option>
+            <option value="DADO_DE_BAJA">Dado de Baja</option>
+          </select>
+          <p className="text-[#40484f] text-sm">{equipos.length} equipos</p>
+        </div>
+        <button onClick={abrirNuevo} className="bg-[#036494] hover:bg-[#004b71] text-white px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-colors shrink-0">
           Nuevo equipo
         </button>
       </div>
@@ -80,9 +102,12 @@ export default function EquiposTab() {
           <div key={eq.id} className="bg-white border border-[#c0c7d0] rounded-xl px-5 py-3 flex justify-between items-center">
             <div>
               <p className="font-medium text-[#191c1e] text-sm">{eq.nombre}</p>
-              <p className="text-[#b0b1b3] text-xs mt-0.5">
-                {eq.codigo_activo} · {eq.categoria_mantenimiento} · {eq.estado_operativo.replace('_', ' ')}
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[#b0b1b3] text-xs">{eq.codigo_activo} · {eq.categoria_mantenimiento}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${ESTADO_OP_ESTILO[eq.estado_operativo] || 'bg-gray-100 text-[#b0b1b3]'}`}>
+                  {eq.estado_operativo.replace(/_/g, ' ')}
+                </span>
+              </div>
             </div>
             <div className="flex gap-2">
               <button onClick={() => abrirEditar(eq)} className="text-xs border border-[#c0c7d0] hover:border-[#036494] hover:text-[#036494] text-[#40484f] px-3 py-1.5 rounded-lg transition-all">Editar</button>
@@ -90,7 +115,7 @@ export default function EquiposTab() {
             </div>
           </div>
         ))}
-        {equipos.length === 0 && <p className="text-[#b0b1b3] text-sm text-center py-6">Sin equipos registrados</p>}
+        {equipos.length === 0 && <p className="text-[#b0b1b3] text-sm text-center py-6">Sin equipos en este filtro</p>}
       </div>
 
       {modal && (

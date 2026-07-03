@@ -40,10 +40,11 @@ class InformeMantenimientoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'programa', 'tecnico', 'tecnico_nombre', 'supervisor',
             'fecha', 'hora_inicio', 'hora_fin', 'hallazgos_generales',
-            'estado_informe', 'comentario_rechazo', 'correctivo_auto_generado',
+            'estado_informe', 'comentario_rechazo',
+            'correctivo_auto_generado', 'correctivo_manual_generado',
             'detalles_score', 'evidencias',
         ]
-        read_only_fields = ['tecnico', 'supervisor', 'correctivo_auto_generado']
+        read_only_fields = ['tecnico', 'supervisor', 'correctivo_auto_generado', 'correctivo_manual_generado']
 
     def create(self, validated_data):
         validated_data['tecnico'] = self.context['request'].user

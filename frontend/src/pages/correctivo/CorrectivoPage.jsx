@@ -160,11 +160,40 @@ function DetalleOrdenModal({ orden, esAdmin, onClose, onGuardado }) {
         <p className="font-semibold text-[#191c1e]">{orden.equipo_nombre}</p>
         <p className="text-[#b0b1b3] text-sm mb-5">{orden.descripcion_falla}</p>
 
+        {/* Tipo de ejecución — admin puede cambiar interno/tercero */}
+        {esAdmin && (
+          <label className="block mb-3">
+            <span className="text-[#40484f] text-xs uppercase tracking-wider block mb-1">Tipo de ejecución</span>
+            <div className="grid grid-cols-2 gap-2">
+              {[['INTERNO', 'Personal Interno'], ['TERCERO', 'Proveedor Externo']].map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setForm({
+                    ...form,
+                    tipo_ejecucion: val,
+                    // limpia la asignación y el estado contradictorio al cambiar de tipo
+                    tecnico_interno: val === 'TERCERO' ? '' : form.tecnico_interno,
+                    proveedor: val === 'INTERNO' ? '' : form.proveedor,
+                    estado: (val !== 'TERCERO' && form.estado === 'ESPERANDO_TERCERO') ? 'PENDIENTE' : form.estado,
+                  })}
+                  className={`py-2 rounded-lg text-sm transition-all ${
+                    form.tipo_ejecucion === val ? 'bg-[#036494] text-white' : 'border border-[#c0c7d0] text-[#40484f] hover:border-[#036494]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </label>
+        )}
+
         <label className="block mb-3">
           <span className="text-[#40484f] text-xs uppercase tracking-wider block mb-1">Estado</span>
           <select value={form.estado} onChange={e => setForm({ ...form, estado: e.target.value })}
             className="w-full border border-[#c0c7d0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#036494]">
-            {ESTADOS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+            {ESTADOS.filter(s => s !== 'ESPERANDO_TERCERO' || form.tipo_ejecucion === 'TERCERO')
+              .map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
         </label>
 

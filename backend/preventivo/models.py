@@ -71,6 +71,8 @@ class InformeMantenimiento(ModeloAuditoria):
     comentario_rechazo = models.TextField(null=True, blank=True)
     # Evita que la derivación automática (score 5) genere órdenes duplicadas al re-aprobar
     correctivo_auto_generado = models.BooleanField(default=False)
+    # Evita que la derivación manual (score 4) genere órdenes duplicadas
+    correctivo_manual_generado = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Informe {self.id} - {self.fecha}"

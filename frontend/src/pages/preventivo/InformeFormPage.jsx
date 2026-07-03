@@ -435,8 +435,10 @@ export default function InformeFormPage() {
                   <p className="text-sm text-[#1a1d23] mb-2">
                     Componentes en estado malo (score 4): {score4.map(d => d.componente_nombre).join(', ')}
                   </p>
-                  {derivadoMsg ? (
-                    <p className="text-sm text-[#4caf82]">{derivadoMsg}</p>
+                  {(informeExistente.correctivo_manual_generado || derivadoMsg) ? (
+                    <p className="text-sm text-[#4caf82]">
+                      {derivadoMsg || 'Ya se derivó una orden correctiva por estos componentes.'}
+                    </p>
                   ) : (
                     <button
                       type="button"

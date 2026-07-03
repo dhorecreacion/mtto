@@ -203,13 +203,16 @@ class InformeMantenimientoViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='derivar-correctivo')
     def derivar_correctivo(self, request, pk=None):
-        """Derivación manual a correctivo (score 4). Solo admin."""
+        """Derivación manual a correctivo (score 4). Solo admin. Una sola vez por informe."""
         if not request.user.is_staff:
             return Response({'error': 'Solo el administrador puede derivar.'}, status=status.HTTP_403_FORBIDDEN)
 
         informe = self.get_object()
         if not informe.programa:
             return Response({'error': 'El informe no tiene un equipo asociado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if informe.correctivo_manual_generado:
+            return Response({'error': 'Este informe ya fue derivado manualmente a correctivo.'}, status=status.HTTP_400_BAD_REQUEST)
 
         componentes = list(
             informe.detalles_score.filter(score_valor=4).select_related('componente')
@@ -225,6 +228,8 @@ class InformeMantenimientoViewSet(viewsets.ModelViewSet):
             descripcion_falla=f'Derivado de inspección preventiva. Componentes en estado MALO (score 4): {nombres}',
             creado_por=request.user,
         )
+        informe.correctivo_manual_generado = True
+        informe.save(update_fields=['correctivo_manual_generado'])
         return Response({'mensaje': 'Orden correctiva creada.', 'orden_id': str(orden.id)}, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'], url_path='generar-pdf')

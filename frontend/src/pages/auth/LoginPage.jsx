@@ -45,9 +45,7 @@ export default function LoginPage() {
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3 leading-tight">
               Sistema de Gestión de Mantenimiento
             </h1>
-            <p className="text-base text-[#cbe6ff] opacity-90">
-              Optimizando la operatividad institucional con precisión técnica.
-            </p>
+
           </div>
         </div>
       </section>
