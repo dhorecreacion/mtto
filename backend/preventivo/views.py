@@ -7,7 +7,6 @@ from django.template.loader import render_to_string
 from django.conf import settings
 import base64
 import io
-import requests
 from .models import ProgramaMantenimiento, InformeMantenimiento, MantenimientoDetalleScore, EvidenciaFoto
 from correctivo.models import OrdenCorrectiva
 from .serializers import (
@@ -35,63 +34,117 @@ def _firma_a_base64(usuario, ancho=300, alto=120):
         return None
 
 
-def _derivar_automatico(informe, usuario):
-    """
-    Al aprobar un informe crea una OrdenCorrectiva automáticamente cuando:
-      - hay componentes con score 5 (falla inminente), o
-      - el programa requiere tercero (con proveedor asignado).
-    Usa el flag correctivo_auto_generado para no duplicar al re-aprobar.
-    """
-    programa = informe.programa
-    if programa is None or informe.correctivo_auto_generado:
-        return
-
-    criticos = list(informe.detalles_score.filter(score_valor=5).select_related('componente'))
-    requiere_tercero = bool(programa.requiere_tercero and programa.proveedor_asignado)
-
-    if not criticos and not requiere_tercero:
-        return
-
-    if criticos:
-        nombres = ', '.join(c.componente.nombre_componente for c in criticos)
-        descripcion = f'Derivado de inspección preventiva. Componentes en FALLA (score 5): {nombres}'
+def _descripcion_derivacion(score):
+    """Texto de la falla a partir de la evaluación del componente."""
+    partes = [f'Derivado de inspección preventiva — Componente: {score.componente.nombre_componente}.']
+    if score.score_inicial and score.score_inicial != score.score_valor:
+        partes.append(f'Encontrado en score {score.score_inicial}, quedó en score {score.score_valor} tras la intervención.')
     else:
-        descripcion = informe.hallazgos_generales or 'Derivado de informe preventivo (requiere tercero)'
+        partes.append(f'Score {score.score_valor}.')
+    if score.detalle_intervencion:
+        partes.append(f'Intervención del técnico: {score.detalle_intervencion}')
+    if score.observacion_tecnica:
+        partes.append(f'Observación: {score.observacion_tecnica}')
+    return ' '.join(partes)
 
-    OrdenCorrectiva.objects.create(
+
+def _derivar_componente(score, usuario):
+    """
+    Crea la Orden Correctiva de UN componente sin resolver (score final 4-5).
+    Tipo TERCERO si el técnico lo marcó como requiere_tercero; INTERNO si no.
+    El proveedor específico lo asigna el supervisor en el triaje de Correctivo.
+    """
+    informe = score.informe
+    tipo = (OrdenCorrectiva.TipoEjecucion.TERCERO if score.requiere_tercero
+            else OrdenCorrectiva.TipoEjecucion.INTERNO)
+
+    orden = OrdenCorrectiva.objects.create(
         informe_origen=informe,
-        equipo=programa.equipo,
-        tipo_ejecucion=OrdenCorrectiva.TipoEjecucion.TERCERO if requiere_tercero else OrdenCorrectiva.TipoEjecucion.INTERNO,
-        proveedor=programa.proveedor_asignado if requiere_tercero else None,
-        descripcion_falla=descripcion,
+        equipo=informe.programa.equipo,
+        tipo_ejecucion=tipo,
+        descripcion_falla=_descripcion_derivacion(score),
         creado_por=usuario,
     )
+    score.derivado = True
+    score.orden_derivada = orden
+    score.save(update_fields=['derivado', 'orden_derivada'])
 
-    informe.correctivo_auto_generado = True
-    informe.save(update_fields=['correctivo_auto_generado'])
+    # Indicador denormalizado para el dashboard/BI
+    if score.requiere_tercero and not informe.programa.requiere_tercero:
+        informe.programa.requiere_tercero = True
+        informe.programa.save(update_fields=['requiere_tercero'])
 
-    programa.estado = ProgramaMantenimiento.EstadoPrograma.EJECUTADO
-    programa.save(update_fields=['estado'])
+    return orden
+
+
+def _derivar_automatico(informe, usuario):
+    """
+    Red de seguridad al APROBAR: cualquier componente en FALLA (score final 5)
+    que el técnico no haya derivado manualmente, se deriva aquí.
+    El flag `derivado` por componente evita duplicados al re-aprobar.
+    """
+    if informe.programa is None:
+        return
+    pendientes = informe.detalles_score.filter(
+        score_valor=5, derivado=False
+    ).select_related('componente')
+    for score in pendientes:
+        _derivar_componente(score, usuario)
+
+
+# Meses que corresponden a cada frecuencia de mantenimiento
+FRECUENCIA_MESES = {
+    'MENSUAL':    list(range(1, 13)),
+    'BIMENSUAL':  [1, 3, 5, 7, 9, 11],
+    'TRIMESTRAL': [1, 4, 7, 10],
+}
 
 
 class ProgramaMantenimientoViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ProgramaMantenimientoSerializer
 
+    @staticmethod
+    def _marcar_atrasados():
+        """Programas PLANIFICADO cuyo mes ya pasó -> ATRASADO (perezoso, en cada consulta)."""
+        from django.db.models import Q
+        from django.utils import timezone
+        hoy = timezone.localdate()
+        ProgramaMantenimiento.objects.filter(
+            activo=True,
+            estado=ProgramaMantenimiento.EstadoPrograma.PLANIFICADO,
+        ).filter(
+            Q(anio__lt=hoy.year) | Q(anio=hoy.year, mes_planificado__lt=hoy.month)
+        ).update(estado=ProgramaMantenimiento.EstadoPrograma.ATRASADO)
+
     def get_queryset(self):
-        qs = ProgramaMantenimiento.objects.select_related('equipo')
-        anio = self.request.query_params.get('anio')
-        estado = self.request.query_params.get('estado')
-        equipo = self.request.query_params.get('equipo')
-        score_min = self.request.query_params.get('score_min')
-        if anio:
-            qs = qs.filter(anio=anio)
-        if estado:
-            qs = qs.filter(estado=estado)
-        if equipo:
-            qs = qs.filter(equipo=equipo)
-        if score_min:
-            qs = qs.filter(score_salud_ultimo__gte=score_min)
+        self._marcar_atrasados()
+        qs = ProgramaMantenimiento.objects.filter(activo=True).select_related('equipo')
+        p = self.request.query_params
+        if p.get('anio'):
+            qs = qs.filter(anio=p['anio'])
+        if p.get('mes'):
+            qs = qs.filter(mes_planificado=p['mes'])
+        if p.get('estado'):
+            if p['estado'] == 'PENDIENTES':
+                # Pendientes = lo que falta ejecutar (planificado o ya atrasado)
+                qs = qs.filter(estado__in=[
+                    ProgramaMantenimiento.EstadoPrograma.PLANIFICADO,
+                    ProgramaMantenimiento.EstadoPrograma.ATRASADO,
+                ])
+            else:
+                qs = qs.filter(estado=p['estado'])
+        if p.get('equipo'):
+            qs = qs.filter(equipo=p['equipo'])
+        if p.get('score_min'):
+            qs = qs.filter(score_salud_ultimo__gte=p['score_min'])
+        # Filtros por ubicación (jerarquía Zona > Lugar > Sección)
+        if p.get('zona'):
+            qs = qs.filter(equipo__seccion__lugar__zona=p['zona'])
+        if p.get('lugar'):
+            qs = qs.filter(equipo__seccion__lugar=p['lugar'])
+        if p.get('seccion'):
+            qs = qs.filter(equipo__seccion=p['seccion'])
         return qs
 
     def perform_create(self, serializer):
@@ -100,27 +153,149 @@ class ProgramaMantenimientoViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save(modificado_por=self.request.user)
 
-    @action(detail=True, methods=['post'], url_path='asistente-voz')
-    def asistente_voz(self, request, pk=None):
-        """Recibe audio, lo transcribe y lo estructura para llenar el formulario."""
-        from . import asistente_voz as av
+    @action(detail=False, methods=['post'], url_path='generar-programacion')
+    def generar_programacion(self, request):
+        """
+        Genera de golpe los programas del año según la FRECUENCIA de cada equipo
+        INDUSTRIAL (Mensual=12, Bimensual=6, Trimestral=4). No duplica existentes.
+        Solo admin.
+        """
+        from django.utils import timezone
+        from activos.models import Equipo
 
-        programa = self.get_object()
-        audio = request.FILES.get('audio')
-        if not audio:
-            return Response({'error': 'No se recibió audio.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.user.is_staff:
+            return Response({'error': 'Solo el administrador puede generar la programación.'}, status=status.HTTP_403_FORBIDDEN)
 
-        componentes = list(
-            programa.equipo.componentes.filter(activo=True).values_list('nombre_componente', flat=True)
-        )
         try:
-            resultado = av.procesar(audio, componentes)
-        except requests.exceptions.RequestException as e:
-            return Response(
-                {'error': f'El servicio de IA no está disponible: {e}'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            anio = int(request.data.get('anio') or timezone.now().year)
+        except (TypeError, ValueError):
+            return Response({'error': 'Año inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        equipos = Equipo.objects.filter(
+            activo=True,
+            categoria_mantenimiento=Equipo.Categoria.INDUSTRIAL,
+        )
+        sin_frecuencia = [e.codigo_activo for e in equipos if not e.frecuencia]
+
+        creados = 0
+        existentes = 0
+        for eq in equipos:
+            for mes in FRECUENCIA_MESES.get(eq.frecuencia, []):
+                _, created = ProgramaMantenimiento.objects.get_or_create(
+                    equipo=eq, anio=anio, mes_planificado=mes,
+                    defaults={'creado_por': request.user},
+                )
+                if created:
+                    creados += 1
+                else:
+                    existentes += 1
+
+        return Response({
+            'anio': anio,
+            'creados': creados,
+            'existentes': existentes,
+            'equipos_sin_frecuencia': sin_frecuencia,
+        })
+
+    @staticmethod
+    def _equipos_filtrados(params, anio):
+        """Equipos INDUSTRIAL filtrados por ubicación + programas del año adjuntos."""
+        from django.db.models import Prefetch
+        from activos.models import Equipo, Zona, Lugar, Seccion
+
+        equipos = Equipo.objects.filter(
+            activo=True,
+            categoria_mantenimiento=Equipo.Categoria.INDUSTRIAL,
+        ).select_related('seccion__lugar__zona').order_by('codigo_activo')
+
+        subtitulo = []
+        if params.get('zona'):
+            equipos = equipos.filter(seccion__lugar__zona=params['zona'])
+            z = Zona.objects.filter(pk=params['zona']).first()
+            if z:
+                subtitulo.append(f'Zona: {z.nombre}')
+        if params.get('lugar'):
+            equipos = equipos.filter(seccion__lugar=params['lugar'])
+            l = Lugar.objects.filter(pk=params['lugar']).first()
+            if l:
+                subtitulo.append(f'Lugar: {l.nombre}')
+        if params.get('seccion'):
+            equipos = equipos.filter(seccion=params['seccion'])
+            s = Seccion.objects.filter(pk=params['seccion']).first()
+            if s:
+                subtitulo.append(f'Sección: {s.nombre}')
+
+        equipos = equipos.prefetch_related(
+            Prefetch(
+                'programaciones',
+                queryset=ProgramaMantenimiento.objects.filter(anio=anio, activo=True),
+                to_attr='programaciones_anio',
             )
-        return Response(resultado)
+        )
+        return equipos, ' — '.join(subtitulo)
+
+    @action(detail=False, methods=['get'], url_path='programa-anual-excel')
+    def programa_anual_excel(self, request):
+        """
+        Compila el PROGRAMA ANUAL (hoja "PROGR. MANTTO. EQ." del FORM-DHO-061).
+        Filtros: ?anio= &zona= &lugar= &seccion=
+        """
+        from django.utils import timezone
+        from .excel_programa import generar_programa_anual
+
+        p = request.query_params
+        anio = p.get('anio') or timezone.now().year
+        equipos, subtitulo = self._equipos_filtrados(p, anio)
+
+        try:
+            buf = generar_programa_anual(equipos, anio, subtitulo)
+        except Exception as e:
+            return Response({'error': f'Error al generar el Excel: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="PROGRAMA_MANTTO_{anio}.xlsx"'
+        return response
+
+    @action(detail=False, methods=['post'], url_path='exportar-consolidado')
+    def exportar_consolidado(self, request):
+        """
+        Un solo Excel con lo que el usuario marque:
+        body: { anio, zona?, lugar?, seccion?, incluir_programa: bool, informes: [ids] }
+        Hoja 1 = Programa Anual (opcional) + una hoja FORM-DHO-061 por informe.
+        """
+        from django.utils import timezone
+        from .excel_consolidado import generar_consolidado
+
+        data = request.data
+        anio = data.get('anio') or timezone.now().year
+        incluir_programa = bool(data.get('incluir_programa', True))
+        ids = data.get('informes') or []
+
+        equipos, subtitulo = (None, '')
+        if incluir_programa:
+            equipos, subtitulo = self._equipos_filtrados(data, anio)
+
+        informes = list(
+            InformeMantenimiento.objects.filter(id__in=ids)
+            .select_related('programa__equipo__seccion__lugar__zona', 'tecnico', 'supervisor')
+            .prefetch_related('detalles_score__componente', 'evidencias')
+            .order_by('programa__equipo__nombre', 'fecha')
+        )
+
+        try:
+            buf = generar_consolidado(incluir_programa, equipos, anio, subtitulo, informes)
+        except Exception as e:
+            return Response({'error': f'Error al generar el Excel: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="MANTTO_CONSOLIDADO_{anio}.xlsx"'
+        return response
 
 
 class InformeMantenimientoViewSet(viewsets.ModelViewSet):
@@ -129,12 +304,22 @@ class InformeMantenimientoViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = InformeMantenimiento.objects.select_related(
-            'tecnico', 'supervisor', 'programa'
+            'tecnico', 'supervisor', 'programa__equipo'
         ).prefetch_related('detalles_score', 'evidencias')
-        programa = self.request.query_params.get('programa')
-        if programa:
-            qs = qs.filter(programa=programa)
-        return qs
+        p = self.request.query_params
+        if p.get('programa'):
+            qs = qs.filter(programa=p['programa'])
+        if p.get('anio'):
+            qs = qs.filter(programa__anio=p['anio'])
+        if p.get('mes'):
+            qs = qs.filter(programa__mes_planificado=p['mes'])
+        if p.get('zona'):
+            qs = qs.filter(programa__equipo__seccion__lugar__zona=p['zona'])
+        if p.get('lugar'):
+            qs = qs.filter(programa__equipo__seccion__lugar=p['lugar'])
+        if p.get('seccion'):
+            qs = qs.filter(programa__equipo__seccion=p['seccion'])
+        return qs.order_by('programa__equipo__nombre', '-fecha')
 
     def perform_create(self, serializer):
         serializer.save(creado_por=self.request.user, tecnico=self.request.user)
@@ -168,15 +353,6 @@ class InformeMantenimientoViewSet(viewsets.ModelViewSet):
             if informe.estado_informe != InformeMantenimiento.EstadoInforme.BORRADOR:
                 return Response({'error': 'Solo puedes enviar informes en BORRADOR.'}, status=status.HTTP_403_FORBIDDEN)
 
-        # Validar aprobación con tercero pendiente
-        if nuevo_estado == InformeMantenimiento.EstadoInforme.APROBADO and request.user.is_staff:
-            programa = informe.programa
-            if programa and programa.requiere_tercero and not programa.proveedor_asignado:
-                return Response({
-                    'error': 'Este informe requiere un proveedor tercero. Asigna uno antes de aprobar.',
-                    'requiere_tercero': True,
-                }, status=status.HTTP_400_BAD_REQUEST)
-
         informe.estado_informe = nuevo_estado
         informe.modificado_por = request.user
 
@@ -192,8 +368,12 @@ class InformeMantenimientoViewSet(viewsets.ModelViewSet):
 
         informe.save(update_fields=['estado_informe', 'modificado_por', 'comentario_rechazo', 'supervisor'])
 
-        # Al aprobar: derivación automática a correctivo (score 5 o requiere tercero)
         if nuevo_estado == InformeMantenimiento.EstadoInforme.APROBADO and request.user.is_staff:
+            # La inspección quedó ejecutada
+            if informe.programa and informe.programa.estado != ProgramaMantenimiento.EstadoPrograma.EJECUTADO:
+                informe.programa.estado = ProgramaMantenimiento.EstadoPrograma.EJECUTADO
+                informe.programa.save(update_fields=['estado'])
+            # Red de seguridad: fallas (score 5) no derivadas aún
             _derivar_automatico(informe, request.user)
 
         return Response({
@@ -201,36 +381,50 @@ class InformeMantenimientoViewSet(viewsets.ModelViewSet):
             'comentario_rechazo': informe.comentario_rechazo,
         })
 
-    @action(detail=True, methods=['post'], url_path='derivar-correctivo')
-    def derivar_correctivo(self, request, pk=None):
-        """Derivación manual a correctivo (score 4). Solo admin. Una sola vez por informe."""
-        if not request.user.is_staff:
-            return Response({'error': 'Solo el administrador puede derivar.'}, status=status.HTTP_403_FORBIDDEN)
-
+    @action(detail=True, methods=['post'], url_path='derivar-componente')
+    def derivar_componente(self, request, pk=None):
+        """
+        Derivación INMEDIATA de un componente sin resolver a Orden Correctiva.
+        La usa el técnico apenas detecta el problema (no espera aprobación),
+        porque gestionar un tercero o un repuesto toma tiempo.
+        """
         informe = self.get_object()
+        user = request.user
+
+        if not user.is_staff and informe.tecnico != user:
+            return Response({'error': 'No tienes permiso sobre este informe.'}, status=status.HTTP_403_FORBIDDEN)
         if not informe.programa:
             return Response({'error': 'El informe no tiene un equipo asociado.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if informe.correctivo_manual_generado:
-            return Response({'error': 'Este informe ya fue derivado manualmente a correctivo.'}, status=status.HTTP_400_BAD_REQUEST)
+        score = get_object_or_404(informe.detalles_score, pk=request.data.get('score_id'))
 
-        componentes = list(
-            informe.detalles_score.filter(score_valor=4).select_related('componente')
-        )
-        if not componentes:
-            return Response({'error': 'No hay componentes con score 4 para derivar.'}, status=status.HTTP_400_BAD_REQUEST)
+        if score.derivado:
+            return Response({'error': 'Este componente ya fue derivado a correctivo.'}, status=status.HTTP_400_BAD_REQUEST)
+        if score.score_valor < 4:
+            return Response({'error': 'Solo se derivan componentes sin resolver (score final 4 o 5).'}, status=status.HTTP_400_BAD_REQUEST)
 
-        nombres = ', '.join(c.componente.nombre_componente for c in componentes)
-        orden = OrdenCorrectiva.objects.create(
-            informe_origen=informe,
-            equipo=informe.programa.equipo,
-            tipo_ejecucion=OrdenCorrectiva.TipoEjecucion.INTERNO,
-            descripcion_falla=f'Derivado de inspección preventiva. Componentes en estado MALO (score 4): {nombres}',
-            creado_por=request.user,
+        orden = _derivar_componente(score, user)
+        return Response({
+            'mensaje': 'Orden correctiva creada.',
+            'orden_id': str(orden.id),
+            'tipo_ejecucion': orden.tipo_ejecucion,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='generar-excel')
+    def generar_excel(self, request, pk=None):
+        """Genera el FORM-DHO-061 oficial en Excel con los datos del informe."""
+        from .excel_form import generar_form_dho_061
+        informe = self.get_object()
+        try:
+            buf = generar_form_dho_061(informe)
+        except Exception as e:
+            return Response({'error': f'Error al generar el Excel: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        informe.correctivo_manual_generado = True
-        informe.save(update_fields=['correctivo_manual_generado'])
-        return Response({'mensaje': 'Orden correctiva creada.', 'orden_id': str(orden.id)}, status=status.HTTP_201_CREATED)
+        response['Content-Disposition'] = f'attachment; filename="FORM-DHO-061_{pk[:8]}.xlsx"'
+        return response
 
     @action(detail=True, methods=['get'], url_path='generar-pdf')
     def generar_pdf(self, request, pk=None):
@@ -273,32 +467,6 @@ class InformeMantenimientoViewSet(viewsets.ModelViewSet):
             return response
         except Exception as e:
             return Response({'error': f'Error al generar PDF: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=True, methods=['post'], url_path='procesar-audio-hallazgos')
-    def procesar_audio_hallazgos(self, request, pk=None):
-        informe = self.get_object()
-        audio_file = request.FILES.get('audio')
-
-        if not audio_file:
-            return Response(
-                {'error': 'No se proporcionó ningún archivo de audio'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ============================================================
-        # Aquí se conectará Whisper (STT) + Mistral/Llama (estructurar)
-        # cuando se integre el servicio local de IA.
-        # Por ahora devuelve el texto simulado para no bloquear el frontend.
-        # ============================================================
-        texto_transcrito = "[Audio recibido — procesamiento de IA pendiente de integración]"
-
-        informe.hallazgos_generales = texto_transcrito
-        informe.save(update_fields=['hallazgos_generales'])
-
-        return Response({
-            'mensaje': 'Audio recibido y hallazgos actualizados correctamente',
-            'hallazgos_generales': informe.hallazgos_generales,
-        }, status=status.HTTP_200_OK)
 
 
 class DetalleScoreViewSet(viewsets.ModelViewSet):

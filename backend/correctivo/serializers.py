@@ -19,6 +19,7 @@ class OrdenCorrectivaSerializer(serializers.ModelSerializer):
             'tipo_ejecucion', 'tecnico_interno', 'tecnico_nombre',
             'proveedor', 'descripcion_falla', 'diagnostico_tecnico',
             'repuestos_utilizados', 'costo_total', 'estado', 'fecha_resolucion',
+            'equipo_inoperativo',
         ]
 
     def validate(self, data):
@@ -74,10 +75,10 @@ class HistorialReemplazoSerializer(serializers.ModelSerializer):
         if saliente and entrante and saliente.id == entrante.id:
             raise serializers.ValidationError('El equipo entrante y saliente no pueden ser el mismo.')
 
-        # El saliente debe estar EN_USO y pertenecer a la sección indicada
+        # El saliente debe estar operando (o averiado en reparación) y pertenecer a la sección indicada
         if saliente:
-            if saliente.estado_operativo != Equipo.EstadoOperativo.EN_USO:
-                raise serializers.ValidationError({'equipo_saliente': 'El equipo saliente debe estar EN USO.'})
+            if saliente.estado_operativo not in (Equipo.EstadoOperativo.EN_USO, Equipo.EstadoOperativo.EN_REPARACION):
+                raise serializers.ValidationError({'equipo_saliente': 'El equipo saliente debe estar EN USO o EN REPARACIÓN.'})
             if seccion and saliente.seccion_id != seccion.id:
                 raise serializers.ValidationError({'equipo_saliente': 'El equipo saliente no pertenece a la sección indicada.'})
 

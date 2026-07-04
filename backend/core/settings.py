@@ -164,24 +164,33 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 LOGIN_REDIRECT_URL = '/api/reportes/seguimiento-predictivo/'
 
-# CORS: en desarrollo se permite todo; en producción solo los orígenes del .env
+# Detrás de nginx confiamos en el proxy y confiamos en los orígenes de la LAN para CSRF.
+# CSRF_TRUSTED_ORIGINS se lee del .env (necesario para el admin cuando DEBUG=False).
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
+
+# CORS: en desarrollo (Vite en otro puerto) se permite todo.
+# En producción detrás de nginx es el mismo origen → no se necesita CORS.
 CORS_ALLOW_CREDENTIALS = True
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 else:
     CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS')
-    CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
 
-# Hardening automático cuando DEBUG=False (producción)
-if not DEBUG:
-    SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', default=True)
+# Hardening de seguridad. Se activa SOLO con USE_HTTPS=True (independiente de DEBUG),
+# porque en la LAN interna corremos producción sobre HTTP simple.
+USE_HTTPS = env_bool('USE_HTTPS', default=False)
+if USE_HTTPS:
+    SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000  # 1 año
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Protección contra sniffing de tipo — siempre activa en producción
+if not DEBUG:
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Django REST Framework
 REST_FRAMEWORK = {

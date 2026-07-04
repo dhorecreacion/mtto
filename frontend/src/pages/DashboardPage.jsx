@@ -1,30 +1,40 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import api from '../api/axios'
 
+const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
 export default function DashboardPage() {
   const { usuario } = useAuth()
+  const navigate = useNavigate()
 
   const [metricas, setMetricas] = useState({
     correctivosPendientes: null,
     equiposCriticos: null,
     programasAtrasados: null,
   })
+  const [tareasMes, setTareasMes] = useState([])
+  const [atrasadas, setAtrasadas] = useState([])
 
   useEffect(() => {
+    const hoy = new Date()
     const cargarMetricas = async () => {
       try {
-        const [correctivos, criticos, atrasados] = await Promise.all([
+        const [correctivos, criticos, atrasados, delMes] = await Promise.all([
           api.get('/api/correctivo/ordenes/?estado=PENDIENTE&page_size=1'),
           api.get('/api/preventivo/programas/?score_min=4&page_size=1'),
-          api.get('/api/preventivo/programas/?estado=ATRASADO&page_size=1'),
+          api.get('/api/preventivo/programas/?estado=ATRASADO'),
+          api.get(`/api/preventivo/programas/?anio=${hoy.getFullYear()}&mes=${hoy.getMonth() + 1}&estado=PLANIFICADO`),
         ])
+        const listaAtrasadas = atrasados.data.results ?? atrasados.data
         setMetricas({
           correctivosPendientes: correctivos.data.count ?? (correctivos.data.results ?? correctivos.data).length,
           equiposCriticos: criticos.data.count ?? (criticos.data.results ?? criticos.data).length,
-          programasAtrasados: atrasados.data.count ?? (atrasados.data.results ?? atrasados.data).length,
+          programasAtrasados: atrasados.data.count ?? listaAtrasadas.length,
         })
+        setAtrasadas(listaAtrasadas)
+        setTareasMes(delMes.data.results ?? delMes.data)
       } catch {
         setMetricas({ correctivosPendientes: 0, equiposCriticos: 0, programasAtrasados: 0 })
       }
@@ -83,6 +93,69 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Alertas de mantenimiento — tareas del mes y atrasadas */}
+      {(tareasMes.length > 0 || atrasadas.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-12">
+
+          <div className="bg-white border border-[#c0c7d0] rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="material-symbols-outlined text-[#036494]">event_available</span>
+              <p className="text-sm font-semibold text-[#191c1e]">Tareas de este mes ({tareasMes.length})</p>
+            </div>
+            {tareasMes.length === 0 ? (
+              <p className="text-[#b0b1b3] text-sm">Sin inspecciones pendientes este mes.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {tareasMes.slice(0, 5).map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => navigate(`/preventivo/informe/${p.id}`)}
+                    className="w-full text-left flex justify-between items-center border border-[#e2e4e8] hover:border-[#036494] rounded-lg px-3 py-2 transition-all"
+                  >
+                    <span className="text-sm text-[#191c1e]">{p.equipo_nombre}</span>
+                    <span className="text-xs text-[#b0b1b3]">{MESES[p.mes_planificado]}</span>
+                  </button>
+                ))}
+                {tareasMes.length > 5 && (
+                  <Link to="/preventivo" className="block text-xs text-[#036494] hover:underline pt-1">
+                    Ver las {tareasMes.length} tareas →
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white border border-red-200 rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="material-symbols-outlined text-[#ba1a1a]">warning</span>
+              <p className="text-sm font-semibold text-[#191c1e]">Atrasadas ({atrasadas.length})</p>
+            </div>
+            {atrasadas.length === 0 ? (
+              <p className="text-[#b0b1b3] text-sm">Sin inspecciones atrasadas.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {atrasadas.slice(0, 5).map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => navigate(`/preventivo/informe/${p.id}`)}
+                    className="w-full text-left flex justify-between items-center border border-red-100 bg-red-50/50 hover:border-[#ba1a1a] rounded-lg px-3 py-2 transition-all"
+                  >
+                    <span className="text-sm text-[#191c1e]">{p.equipo_nombre}</span>
+                    <span className="text-xs text-[#ba1a1a]">{MESES[p.mes_planificado]} {p.anio}</span>
+                  </button>
+                ))}
+                {atrasadas.length > 5 && (
+                  <Link to="/preventivo" className="block text-xs text-[#ba1a1a] hover:underline pt-1">
+                    Ver las {atrasadas.length} atrasadas →
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
 
       {/* Grid de módulos */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

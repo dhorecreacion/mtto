@@ -10,8 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@tailwindcss/vite": "^4.3.0",
     "axios": "^1.16.1",
+    "material-symbols": "^0.45.5",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.16.0",

@@ -1,10 +1,12 @@
 import axios from 'axios'
 
-// Deriva la URL del backend del MISMO host con el que se abrió la app.
-// Así funciona en localhost o en cualquier IP de la red local sin reconstruir.
-// Si defines VITE_API_URL en el entorno, ese valor tiene prioridad (útil en producción).
+// Resuelve la URL del backend según el entorno:
+// - Producción (detrás de nginx): ruta relativa '' → mismo origen, nginx enruta /api/ a Django.
+// - Desarrollo (Vite dev server): host actual + puerto 8000 de Django.
+// - VITE_API_URL en el entorno tiene prioridad si se define explícitamente.
 function resolverApiUrl() {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
+  if (import.meta.env.PROD) return ''  // mismo origen (nginx)
   const { protocol, hostname } = window.location
   return `${protocol}//${hostname}:8000`
 }

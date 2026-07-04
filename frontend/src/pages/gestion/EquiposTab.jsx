@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import api from '../../api/axios'
 
 const CONDICION = [['BUENA', 'Buena'], ['INTERMEDIA', 'Intermedia'], ['MALA', 'Mala']]
 const CRITICIDAD = [['ALTA', 'Alta'], ['MEDIA', 'Media'], ['BAJA', 'Baja']]
 const CATEGORIA = [['INDUSTRIAL', 'Industrial (Predictivo)'], ['REEMPLAZABLE', 'Reemplazable (Swaps)']]
-const ESTADO = [['EN_USO', 'En Uso'], ['EN_ALMACEN', 'En Almacén'], ['DADO_DE_BAJA', 'Dado de Baja']]
+const ESTADO = [['EN_USO', 'En Uso'], ['EN_REPARACION', 'En Reparación'], ['EN_ALMACEN', 'En Almacén'], ['DADO_DE_BAJA', 'Dado de Baja']]
 const FRECUENCIA = [['', 'Sin frecuencia'], ['MENSUAL', 'Mensual'], ['BIMENSUAL', 'Bimensual'], ['TRIMESTRAL', 'Trimestral']]
 
 const ESTADO_OP_ESTILO = {
-  EN_USO:       'bg-green-50 text-[#4caf82] border border-green-200',
-  EN_ALMACEN:   'bg-blue-50 text-[#5aa0d3] border border-blue-200',
-  DADO_DE_BAJA: 'bg-red-50 text-[#e05252] border border-red-200',
+  EN_USO:        'bg-green-50 text-[#4caf82] border border-green-200',
+  EN_REPARACION: 'bg-orange-50 text-orange-500 border border-orange-200',
+  EN_ALMACEN:    'bg-blue-50 text-[#5aa0d3] border border-blue-200',
+  DADO_DE_BAJA:  'bg-red-50 text-[#e05252] border border-red-200',
 }
 
 const FORM_VACIO = {
@@ -29,6 +30,9 @@ export default function EquiposTab() {
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [filtroEstado, setFiltroEstado] = useState('')
+  const [importando, setImportando] = useState(false)
+  const [resumenImport, setResumenImport] = useState(null)
+  const inputArchivo = useRef(null)
 
   const cargar = (estado = filtroEstado) => {
     const url = estado ? `/api/activos/equipos/?estado=${estado}` : '/api/activos/equipos/'
@@ -74,6 +78,34 @@ export default function EquiposTab() {
     catch { setError('No se pudo eliminar.') }
   }
 
+  const descargarPlantilla = async () => {
+    try {
+      const { data: blob } = await api.get('/api/activos/equipos/plantilla-excel/', { responseType: 'blob' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'PLANTILLA_CARGA_EQUIPOS.xlsx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { setError('No se pudo descargar la plantilla.') }
+  }
+
+  const importarArchivo = async (e) => {
+    const archivo = e.target.files[0]
+    e.target.value = ''  // permite volver a elegir el mismo archivo
+    if (!archivo) return
+    setImportando(true); setResumenImport(null); setError('')
+    try {
+      const fd = new FormData()
+      fd.append('archivo', archivo)
+      const { data } = await api.post('/api/activos/equipos/importar-excel/', fd)
+      setResumenImport(data)
+      cargar()
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo importar el archivo.')
+    } finally { setImportando(false) }
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4 gap-3">
@@ -85,15 +117,49 @@ export default function EquiposTab() {
           >
             <option value="">Todos los estados</option>
             <option value="EN_USO">En Uso</option>
+            <option value="EN_REPARACION">En Reparación</option>
             <option value="EN_ALMACEN">En Almacén</option>
             <option value="DADO_DE_BAJA">Dado de Baja</option>
           </select>
           <p className="text-[#40484f] text-sm">{equipos.length} equipos</p>
         </div>
-        <button onClick={abrirNuevo} className="bg-[#036494] hover:bg-[#004b71] text-white px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-colors shrink-0">
-          Nuevo equipo
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={descargarPlantilla} className="border border-[#c0c7d0] hover:border-[#036494] text-[#40484f] hover:text-[#036494] px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-all bg-white">
+            Plantilla Excel
+          </button>
+          <button onClick={() => inputArchivo.current?.click()} disabled={importando}
+            className="border border-[#c0c7d0] hover:border-[#036494] text-[#40484f] hover:text-[#036494] disabled:opacity-40 px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-all bg-white">
+            {importando ? 'Importando...' : 'Importar Excel'}
+          </button>
+          <input ref={inputArchivo} type="file" accept=".xlsx" onChange={importarArchivo} className="hidden" />
+          <button onClick={abrirNuevo} className="bg-[#036494] hover:bg-[#004b71] text-white px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-colors">
+            Nuevo equipo
+          </button>
+        </div>
       </div>
+
+      {resumenImport && (
+        <div className="bg-white border border-[#c0c7d0] rounded-xl px-5 py-4 mb-4 text-sm">
+          <div className="flex justify-between items-start">
+            <p className="font-semibold text-[#191c1e]">
+              Importación: {resumenImport.creados} equipo{resumenImport.creados !== 1 && 's'} creado{resumenImport.creados !== 1 && 's'}
+              {resumenImport.omitidos.length > 0 && ` · ${resumenImport.omitidos.length} omitido${resumenImport.omitidos.length !== 1 ? 's' : ''} (ya existían)`}
+              {resumenImport.errores.length > 0 && ` · ${resumenImport.errores.length} fila${resumenImport.errores.length !== 1 ? 's' : ''} con error`}
+            </p>
+            <button onClick={() => setResumenImport(null)} className="text-[#b0b1b3] hover:text-[#191c1e] text-xs">Cerrar</button>
+          </div>
+          {resumenImport.omitidos.length > 0 && (
+            <p className="text-[#b0b1b3] text-xs mt-2">Omitidos: {resumenImport.omitidos.join(', ')}</p>
+          )}
+          {resumenImport.errores.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {resumenImport.errores.map((e) => (
+                <li key={e.fila} className="text-[#e05252] text-xs">Fila {e.fila}: {e.error}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {error && !modal && <p className="text-[#e05252] text-sm mb-3">{error}</p>}
 

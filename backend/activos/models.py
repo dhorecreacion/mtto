@@ -72,6 +72,7 @@ class Equipo(ModeloAuditoria):
 
     class EstadoOperativo(models.TextChoices):
         EN_USO = 'EN_USO', 'En Uso'
+        EN_REPARACION = 'EN_REPARACION', 'En Reparación'
         EN_ALMACEN = 'EN_ALMACEN', 'En Almacén'
         DADO_DE_BAJA = 'DADO_DE_BAJA', 'Dado de Baja'
 

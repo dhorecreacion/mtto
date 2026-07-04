@@ -34,9 +34,12 @@ class OrdenCorrectivaViewSet(SoftDeleteMixin, viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(creado_por=self.request.user)
+        orden = serializer.save(creado_por=self.request.user)
+        if orden.inoperatividad_vigente:
+            orden.suspender_preventivos()
 
     def perform_update(self, serializer):
+        inoperativa_antes = serializer.instance.inoperatividad_vigente
         orden = serializer.save(modificado_por=self.request.user)
         # Al completar, registra la fecha de resolución si no se puso (clave para MTTR)
         if orden.estado == OrdenCorrectiva.EstadoOrden.COMPLETADO and orden.fecha_resolucion is None:
@@ -46,6 +49,22 @@ class OrdenCorrectivaViewSet(SoftDeleteMixin, viewsets.ModelViewSet):
         elif orden.estado != OrdenCorrectiva.EstadoOrden.COMPLETADO and orden.fecha_resolucion is not None:
             orden.fecha_resolucion = None
             orden.save(update_fields=['fecha_resolucion'])
+        # Sincroniza el standby de los preventivos según cambió la inoperatividad
+        if not inoperativa_antes and orden.inoperatividad_vigente:
+            orden.suspender_preventivos()
+        elif inoperativa_antes and not orden.inoperatividad_vigente:
+            retorno = orden.fecha_resolucion.date() if orden.fecha_resolucion else None
+            orden.reactivar_preventivos(retorno)
+
+    def destroy(self, request, *args, **kwargs):
+        orden = self.get_object()
+        reactivar = orden.inoperatividad_vigente
+        respuesta = super().destroy(request, *args, **kwargs)
+        # Si se elimina la orden que tenía al equipo fuera de servicio, lo libera
+        if reactivar:
+            orden.refresh_from_db()
+            orden.reactivar_preventivos()
+        return respuesta
 
 
 class HistorialReemplazoViewSet(viewsets.ModelViewSet):

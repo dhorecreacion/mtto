@@ -49,8 +49,47 @@ export default function ProgramasTab() {
     catch { setError('No se pudo eliminar.') }
   }
 
+  // Generación masiva según la frecuencia de cada equipo
+  const [anioGen, setAnioGen] = useState(new Date().getFullYear())
+  const [generando, setGenerando] = useState(false)
+  const [resultadoGen, setResultadoGen] = useState('')
+
+  const generarProgramacion = async () => {
+    setGenerando(true); setError(''); setResultadoGen('')
+    try {
+      const { data } = await api.post('/api/preventivo/programas/generar-programacion/', { anio: anioGen })
+      let msg = `Se crearon ${data.creados} programas para ${data.anio}`
+      if (data.existentes) msg += ` (${data.existentes} ya existían)`
+      if (data.equipos_sin_frecuencia?.length) msg += `. Sin frecuencia definida: ${data.equipos_sin_frecuencia.join(', ')}`
+      setResultadoGen(msg)
+      cargar()
+    } catch (e) {
+      setError(e.response?.data?.error || 'No se pudo generar la programación.')
+    } finally { setGenerando(false) }
+  }
+
   return (
     <div>
+      {/* Generación automática por frecuencia */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+        <p className="text-xs font-semibold uppercase tracking-wider text-[#036494] mb-1">Generación automática</p>
+        <p className="text-[#40484f] text-xs mb-3">
+          Crea de golpe los programas del año según la frecuencia de cada equipo
+          (Mensual = 12, Bimensual = 6, Trimestral = 4). No duplica los existentes.
+        </p>
+        <div className="flex items-center gap-2">
+          <select value={anioGen} onChange={e => setAnioGen(e.target.value)}
+            className="border border-[#c0c7d0] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#036494]">
+            {[new Date().getFullYear(), new Date().getFullYear() + 1].map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <button onClick={generarProgramacion} disabled={generando}
+            className="bg-[#036494] hover:bg-[#004b71] disabled:opacity-40 text-white px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-colors">
+            {generando ? 'Generando...' : `Generar programación ${anioGen}`}
+          </button>
+        </div>
+        {resultadoGen && <p className="text-[#4caf82] text-sm mt-2">{resultadoGen}</p>}
+      </div>
+
       <div className="flex justify-between items-center mb-4">
         <p className="text-[#40484f] text-sm">{programas.length} programas registrados</p>
         <button onClick={abrirNuevo} className="bg-[#036494] hover:bg-[#004b71] text-white px-4 py-2 rounded-lg text-xs font-semibold tracking-wider uppercase transition-colors">
@@ -114,6 +153,7 @@ export default function ProgramasTab() {
                   <option value="EJECUTADO">Ejecutado</option>
                   <option value="ATRASADO">Atrasado</option>
                   <option value="PENDIENTE_TERCERO">Pendiente de Tercero</option>
+                  <option value="STANDBY">En Standby</option>
                 </select>
               </label>
             )}

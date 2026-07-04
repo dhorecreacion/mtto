@@ -16,6 +16,9 @@ class ProgramaMantenimiento(ModeloAuditoria):
         EJECUTADO         = 'EJECUTADO',         'Ejecutado'
         ATRASADO          = 'ATRASADO',          'Atrasado'
         PENDIENTE_TERCERO = 'PENDIENTE_TERCERO', 'Pendiente de Tercero'
+        # Equipo fuera de servicio por una orden correctiva: el programa queda
+        # suspendido y NO cuenta como pendiente ni atrasado en KPIs.
+        STANDBY           = 'STANDBY',           'En Standby'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     equipo = models.ForeignKey(Equipo, on_delete=models.CASCADE, related_name='programaciones')
@@ -24,13 +27,9 @@ class ProgramaMantenimiento(ModeloAuditoria):
     estado = models.CharField(max_length=20, choices=EstadoPrograma.choices, default=EstadoPrograma.PLANIFICADO)
 
     score_salud_ultimo = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+    # Indicador denormalizado para el dashboard/BI: se activa cuando algún
+    # componente del último informe quedó marcado como "requiere tercero".
     requiere_tercero = models.BooleanField(default=False)
-    proveedor_asignado = models.ForeignKey(
-        'correctivo.ProveedorTercero',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='programas_asignados'
-    )
 
     class Meta(ModeloAuditoria.Meta):
         unique_together = ('equipo', 'anio', 'mes_planificado')
@@ -69,26 +68,47 @@ class InformeMantenimiento(ModeloAuditoria):
     hallazgos_generales = models.TextField(null=True, blank=True)
     estado_informe = models.CharField(max_length=20, choices=EstadoInforme.choices, default=EstadoInforme.BORRADOR)
     comentario_rechazo = models.TextField(null=True, blank=True)
-    # Evita que la derivación automática (score 5) genere órdenes duplicadas al re-aprobar
-    correctivo_auto_generado = models.BooleanField(default=False)
-    # Evita que la derivación manual (score 4) genere órdenes duplicadas
-    correctivo_manual_generado = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Informe {self.id} - {self.fecha}"
 
 # ============================================================
-# 3. MOTOR PREDICTIVO (Los Scores 1 al 5)
+# 3. MOTOR PREDICTIVO (Evaluación por componente)
 # ============================================================
+# Solo se registran los componentes que el técnico decidió inspeccionar.
+# Flujo: score_inicial (encontrado) -> intervención opcional -> score_valor (final).
+# Las estadísticas y las derivaciones a correctivo usan SIEMPRE el score final.
 
 class MantenimientoDetalleScore(ModeloAuditoria):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     informe = models.ForeignKey(InformeMantenimiento, on_delete=models.CASCADE, related_name='detalles_score')
     componente = models.ForeignKey(MantenimientoComponente, on_delete=models.RESTRICT, related_name='historial_scores')
-    
-    # El dato maestro: 1 (Excelente) a 5 (Falla)
+
+    # Estado en que el técnico ENCONTRÓ el componente (null en registros antiguos)
+    score_inicial = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        null=True, blank=True,
+    )
+    # ¿El técnico hizo un arreglo superficial en el momento?
+    intervencion = models.BooleanField(default=False)
+    detalle_intervencion = models.TextField(null=True, blank=True)
+
+    # Score FINAL (tras la intervención, si la hubo). Es el dato maestro
+    # que alimenta el promedio de salud y los triggers de derivación.
     score_valor = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
     observacion_tecnica = models.TextField(null=True, blank=True)
+
+    # Solo aplica cuando el score final quedó en 4-5 (no se pudo resolver)
+    requiere_tercero = models.BooleanField(default=False)
+
+    # Trazabilidad de la derivación inmediata a correctivo
+    derivado = models.BooleanField(default=False)
+    orden_derivada = models.ForeignKey(
+        'correctivo.OrdenCorrectiva',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='componentes_derivados',
+    )
 
     def __str__(self):
         return f"{self.componente.nombre_componente}: Score {self.score_valor}"

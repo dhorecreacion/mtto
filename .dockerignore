@@ -1,0 +1,6 @@
+# Aplica a los builds cuyo contexto es la raíz del proyecto (nginx, web)
+frontend/node_modules
+frontend/dist
+.git
+*.md
+*.xlsx

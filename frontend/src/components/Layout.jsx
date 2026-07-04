@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 
@@ -12,6 +13,20 @@ export default function Layout({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { usuario, logout } = useAuth()
+  const [menuAbierto, setMenuAbierto] = useState(false)
+  const menuRef = useRef(null)
+
+  // Cierra el menú al hacer clic/tocar fuera de él
+  useEffect(() => {
+    if (!menuAbierto) return
+    const handleClickFuera = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuAbierto(false)
+      }
+    }
+    document.addEventListener('pointerdown', handleClickFuera)
+    return () => document.removeEventListener('pointerdown', handleClickFuera)
+  }, [menuAbierto])
 
   const nombreUsuario = usuario?.first_name || usuario?.username || 'Usuario'
   const rolUsuario = usuario?.rol || ''
@@ -51,18 +66,27 @@ export default function Layout({ children }) {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="relative group">
-              <button className="material-symbols-outlined text-[#036494] cursor-pointer p-2 rounded-full hover:bg-[#f3f4f6] transition-colors outline-none focus:ring-2 focus:ring-[#5aa0d3]">
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setMenuAbierto(a => !a)}
+                className="material-symbols-outlined text-[#036494] cursor-pointer p-2 rounded-full hover:bg-[#f3f4f6] transition-colors outline-none focus:ring-2 focus:ring-[#5aa0d3]"
+              >
                 account_circle
               </button>
 
               {/* Dropdown */}
-              <div className="absolute right-0 mt-2 w-48 bg-[#f8f9fb] border border-[#c0c7d0] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <div className={`absolute right-0 mt-2 w-48 bg-[#f8f9fb] border border-[#c0c7d0] rounded-lg shadow-lg transition-all z-50 ${
+                menuAbierto ? 'opacity-100 visible' : 'opacity-0 invisible'
+              }`}>
                 <div className="p-4 border-b border-[#c0c7d0]">
                   <p className="font-bold text-sm truncate">{nombreUsuario}</p>
                   <p className="text-xs text-[#40484f] capitalize">{rolUsuario.toLowerCase()}</p>
                 </div>
-                <Link to="/perfil" className="block px-4 py-2 hover:bg-[#f3f4f6] text-sm transition-colors">
+                <Link
+                  to="/perfil"
+                  onClick={() => setMenuAbierto(false)}
+                  className="block px-4 py-2 hover:bg-[#f3f4f6] text-sm transition-colors"
+                >
                   Mi Perfil
                 </Link>
                 <button

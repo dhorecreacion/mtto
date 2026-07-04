@@ -91,9 +91,14 @@ export default function CorrectivoPage() {
                   </span>
                 </div>
                 <p className="text-[#b0b1b3] text-sm">{o.descripcion_falla}</p>
-                <div className="flex gap-3 mt-2">
+                <div className="flex gap-3 mt-2 items-center">
                   <span className="text-xs text-[#b0b1b3]">{o.tipo_ejecucion === 'TERCERO' ? 'Externo' : 'Interno'}</span>
                   {o.costo_total > 0 && <span className="text-xs text-[#b0b1b3]">S/ {o.costo_total}</span>}
+                  {o.equipo_inoperativo && !['COMPLETADO', 'CANCELADO'].includes(o.estado) && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-[#e05252] border border-red-200">
+                      Fuera de servicio
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
@@ -129,6 +134,7 @@ function DetalleOrdenModal({ orden, esAdmin, onClose, onGuardado }) {
     repuestos_utilizados: orden.repuestos_utilizados || '',
     costo_total: orden.costo_total || '0.00',
     fecha_resolucion: orden.fecha_resolucion ? orden.fecha_resolucion.slice(0, 10) : '',
+    equipo_inoperativo: orden.equipo_inoperativo || false,
   })
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState('')
@@ -244,6 +250,21 @@ function DetalleOrdenModal({ orden, esAdmin, onClose, onGuardado }) {
           </label>
         </div>
 
+        <label className="flex items-start gap-3 border border-[#c0c7d0] rounded-lg px-4 py-3 cursor-pointer hover:border-[#036494] transition-colors mb-3">
+          <input
+            type="checkbox"
+            checked={form.equipo_inoperativo}
+            onChange={(e) => setForm({ ...form, equipo_inoperativo: e.target.checked })}
+            className="mt-0.5 accent-[#e05252]"
+          />
+          <span>
+            <span className="text-sm text-[#191c1e] block">Equipo fuera de servicio</span>
+            <span className="text-xs text-[#b0b1b3] block mt-0.5">
+              Preventivos en standby; se reactivan al completar o cancelar la orden.
+            </span>
+          </span>
+        </label>
+
         {error && <p className="text-[#e05252] text-sm mb-3">{error}</p>}
 
         <div className="flex gap-3">
@@ -260,7 +281,7 @@ function DetalleOrdenModal({ orden, esAdmin, onClose, onGuardado }) {
 function NuevaOrdenModal({ onClose, onGuardado }) {
   const [equipos, setEquipos] = useState([])
   const [proveedores, setProveedores] = useState([])
-  const [form, setForm] = useState({ equipo: '', descripcion_falla: '', tipo_ejecucion: 'INTERNO', proveedor: '' })
+  const [form, setForm] = useState({ equipo: '', descripcion_falla: '', tipo_ejecucion: 'INTERNO', proveedor: '', equipo_inoperativo: false })
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState('')
 
@@ -329,6 +350,21 @@ function NuevaOrdenModal({ onClose, onGuardado }) {
               )}
             </div>
           )}
+
+          <label className="flex items-start gap-3 border border-[#e2e4e8] rounded-lg px-4 py-3 cursor-pointer hover:border-[#5aa0d3] transition-colors">
+            <input
+              type="checkbox"
+              checked={form.equipo_inoperativo}
+              onChange={(e) => setForm({ ...form, equipo_inoperativo: e.target.checked })}
+              className="mt-0.5 accent-[#e05252]"
+            />
+            <span>
+              <span className="text-sm text-[#1a1d23] block">Equipo fuera de servicio</span>
+              <span className="text-xs text-[#b0b1b3] block mt-0.5">
+                Sus mantenimientos preventivos quedarán en standby hasta completar esta orden.
+              </span>
+            </span>
+          </label>
 
           {error && <p className="text-[#e05252] text-sm">{error}</p>}
 

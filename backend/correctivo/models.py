@@ -60,6 +60,62 @@ class OrdenCorrectiva(ModeloAuditoria):
     estado = models.CharField(max_length=30, choices=EstadoOrden.choices, default=EstadoOrden.PENDIENTE)
     fecha_resolucion = models.DateTimeField(null=True, blank=True)
 
+    # La falla dejó el equipo fuera de servicio: suspende sus preventivos
+    # pendientes (STANDBY) hasta que la orden se complete o cancele.
+    equipo_inoperativo = models.BooleanField(default=False)
+
+    ESTADOS_CERRADOS = (EstadoOrden.COMPLETADO, EstadoOrden.CANCELADO)
+
+    @property
+    def inoperatividad_vigente(self):
+        """True mientras esta orden mantiene al equipo fuera de servicio."""
+        return self.activo and self.equipo_inoperativo and self.estado not in self.ESTADOS_CERRADOS
+
+    def suspender_preventivos(self):
+        """Equipo -> EN_REPARACION; sus programas PLANIFICADO del mes actual
+        en adelante -> STANDBY. Los ya ATRASADO de meses previos se conservan
+        (se incumplieron antes de la falla)."""
+        from django.utils import timezone
+        from preventivo.models import ProgramaMantenimiento
+
+        hoy = timezone.localdate()
+        ProgramaMantenimiento.objects.filter(
+            equipo=self.equipo, activo=True,
+            estado=ProgramaMantenimiento.EstadoPrograma.PLANIFICADO,
+        ).filter(
+            models.Q(anio__gt=hoy.year) | models.Q(anio=hoy.year, mes_planificado__gte=hoy.month)
+        ).update(estado=ProgramaMantenimiento.EstadoPrograma.STANDBY)
+
+        if self.equipo.estado_operativo == Equipo.EstadoOperativo.EN_USO:
+            self.equipo.estado_operativo = Equipo.EstadoOperativo.EN_REPARACION
+            self.equipo.save(update_fields=['estado_operativo'])
+
+    def reactivar_preventivos(self, fecha_retorno=None):
+        """Al cerrar la orden: equipo -> EN_USO y los programas STANDBY desde
+        el mes de retorno vuelven a PLANIFICADO. Los meses transcurridos parado
+        quedan en STANDBY como registro histórico. No hace nada si otra orden
+        sigue manteniendo al equipo inoperativo."""
+        from django.utils import timezone
+        from preventivo.models import ProgramaMantenimiento
+
+        otras_vigentes = OrdenCorrectiva.objects.filter(
+            equipo=self.equipo, activo=True, equipo_inoperativo=True,
+        ).exclude(pk=self.pk).exclude(estado__in=self.ESTADOS_CERRADOS)
+        if otras_vigentes.exists():
+            return
+
+        retorno = fecha_retorno or timezone.localdate()
+        ProgramaMantenimiento.objects.filter(
+            equipo=self.equipo, activo=True,
+            estado=ProgramaMantenimiento.EstadoPrograma.STANDBY,
+        ).filter(
+            models.Q(anio__gt=retorno.year) | models.Q(anio=retorno.year, mes_planificado__gte=retorno.month)
+        ).update(estado=ProgramaMantenimiento.EstadoPrograma.PLANIFICADO)
+
+        if self.equipo.estado_operativo == Equipo.EstadoOperativo.EN_REPARACION:
+            self.equipo.estado_operativo = Equipo.EstadoOperativo.EN_USO
+            self.equipo.save(update_fields=['estado_operativo'])
+
     def __str__(self):
         return f"OT-{self.id.hex[:6].upper()} | {self.equipo.codigo_activo} ({self.estado})"
 

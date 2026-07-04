@@ -8,5 +8,6 @@ django-cors-headers
 Pillow
 django-stubs>=5.0.0
 weasyprint>=62.0
-requests>=2.31
+gunicorn>=22.0
+openpyxl>=3.1
 

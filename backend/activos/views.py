@@ -1,4 +1,6 @@
+from django.http import HttpResponse
 from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from core.mixins import SoftDeleteMixin
 from .models import Zona, Lugar, Seccion, Equipo, MantenimientoComponente
@@ -78,6 +80,36 @@ class EquipoViewSet(SoftDeleteMixin, viewsets.ModelViewSet):
         if seccion:
             qs = qs.filter(seccion=seccion)
         return qs
+
+    @action(detail=False, methods=['get'], url_path='plantilla-excel')
+    def plantilla_excel(self, request):
+        """Descarga la plantilla de carga masiva con desplegables y catálogos."""
+        from .excel_carga import generar_plantilla_equipos
+        try:
+            buf = generar_plantilla_equipos()
+        except Exception as e:
+            return Response({'error': f'Error al generar la plantilla: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="PLANTILLA_CARGA_EQUIPOS.xlsx"'
+        return response
+
+    @action(detail=False, methods=['post'], url_path='importar-excel')
+    def importar_excel(self, request):
+        """Recibe la plantilla llenada (multipart, campo "archivo") y crea los equipos. Solo admin."""
+        from .excel_carga import importar_equipos
+        if not request.user.is_staff:
+            return Response({'error': 'Solo el administrador puede importar equipos.'}, status=status.HTTP_403_FORBIDDEN)
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response({'error': 'Adjunta el archivo Excel en el campo "archivo".'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            resultado = importar_equipos(archivo, request.user)
+        except Exception as e:
+            return Response({'error': f'No se pudo leer el archivo: {e}'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(resultado)
 
 
 class ComponenteViewSet(SoftDeleteMixin, viewsets.ModelViewSet):
